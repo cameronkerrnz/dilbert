@@ -8,6 +8,7 @@ pub fn hello() -> String {
 #[cfg(test)]
 mod tests {
 
+    use core::time;
     use std::{os::unix::process::ExitStatusExt, process::Stdio};
 
     use super::*;
@@ -70,5 +71,57 @@ mod tests {
         assert_eq!(b"goodness\n", output.stdout.as_slice());
         assert_eq!("goodness\n", String::from_utf8(output.stdout).unwrap());
         assert_eq!(b"badness\n", output.stderr.as_slice());
+    }
+
+    #[test]
+    fn test_kill_after_timeout() {
+        let mut child = Command::new("sh")
+            .args(["-c", "while sleep 0.01; do echo out; echo err >&2; done"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .expect("should have created a process");
+
+        let pid = child.id();
+
+        println!("Process ID is {}", pid);
+
+        // Check it every 0.1 seconds; kill it after 0.5 seconds.
+        let mut run_time = time::Duration::from_millis(0);
+        let poll_interval = time::Duration::from_millis(10);
+        let kill_after = time::Duration::from_millis(50);
+
+        loop {
+            std::thread::sleep(poll_interval);
+            run_time += poll_interval;  // bit sloppy; better to get the runtime from the OS
+            
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    // process exited (early in this case, as we expected to kill it)
+                    assert!(run_time > kill_after);
+                    break;
+                }
+                Ok(None) => {
+                    println!("Process has been executing for {}ms", run_time.as_millis());
+                    if run_time > kill_after {
+                        println!("Process has been running longer than {}ms, killing", kill_after.as_millis());
+                        child.kill().expect("expected to kill process");
+                        break;
+                    }
+                }
+                Err(e) => {
+                    println!("error attempting to check process: {}", e);
+                }
+            }
+        }
+
+        let output = child
+            .wait_with_output()
+            .expect("expected to collect process status");
+
+        println!("Output is {}", output.status);
+
+        assert!(output.status.signal().is_some());
+
     }
 }
