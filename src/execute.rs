@@ -96,7 +96,7 @@ mod tests {
             run_time += poll_interval;  // bit sloppy; better to get the runtime from the OS
             
             match child.try_wait() {
-                Ok(Some(status)) => {
+                Ok(Some(_status)) => {
                     // process exited (early in this case, as we expected to kill it)
                     assert!(run_time > kill_after);
                     break;
